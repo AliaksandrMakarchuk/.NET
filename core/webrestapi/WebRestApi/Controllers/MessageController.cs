@@ -68,7 +68,7 @@ namespace WebRestApi.Controllers
             }
             catch (Exception e)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = "Something went wrong" });
+                return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = $"Something went wrong: {e.Message}" });
             }
         }
 
