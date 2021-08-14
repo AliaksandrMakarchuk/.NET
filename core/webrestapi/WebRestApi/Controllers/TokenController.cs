@@ -45,7 +45,7 @@ namespace WebRestApi.Controllers
         [HttpGet]
         public IActionResult Ping()
         {
-            _logger.LogInformation(LoggingEvents.GetUserById, "pong");
+            _logger.LogInformation(LoggingEvents.AuthenticationPingRequest, "Ping request");
             return Ok("pong");
         }
 
@@ -65,10 +65,13 @@ namespace WebRestApi.Controllers
 
             try
             {
+                _logger.LogInformation(LoggingEvents.AuthenticationGetToken, $"Try get token for {credentials.Login}");
+
                 var identity = await GetIdentity(credentials.Login, credentials.Password);
 
                 if (identity == null)
                 {
+                    _logger.LogInformation(LoggingEvents.AuthenticationGetToken, $"Was not found identity for {credentials.Login}");
                     return StatusCode(StatusCodes.Status401Unauthorized, new ErrorResponse { Message = "Invalid user name or password" });
                 }
 
