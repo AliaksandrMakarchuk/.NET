@@ -43,31 +43,34 @@ namespace WebRestApi.Controllers
         [HttpGet]
         public async Task<IActionResult> Get()
         {
+            _logger.LogInformation(LoggingEvents.GetMessagesByUser, $"Try get all messages for user {this.User.FindFirst(x => x.Type == ClaimTypes.Sid).Value}");
             try
             {
                 var messages = await _dataService.GetAllMessagesAsync(this.User);
                 return Ok(messages.Select(m => new ClientMessage
                 {
                     Id = m.Id,
-                        From = new ClientUser
-                        {
-                            Id = m.Sender.Id,
-                                FirstName = m.Sender.FirstName,
-                                LastName = m.Sender.LastName,
-                                RoleName = m.Sender.Role.Name
-                        },
-                        To = new ClientUser
-                        {
-                            Id = m.Receiver.Id,
-                                FirstName = m.Receiver.FirstName,
-                                LastName = m.Receiver.LastName,
-                                RoleName = m.Receiver.Role.Name
-                        },
-                        Message = m.Text
+                    From = new ClientUser
+                    {
+                        Id = m.Sender.Id,
+                        FirstName = m.Sender.FirstName,
+                        LastName = m.Sender.LastName,
+                        RoleName = m.Sender.Role.Name
+                    },
+                    To = new ClientUser
+                    {
+                        Id = m.Receiver.Id,
+                        FirstName = m.Receiver.FirstName,
+                        LastName = m.Receiver.LastName,
+                        RoleName = m.Receiver.Role.Name
+                    },
+                    Message = m.Text
                 }));
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
+                _logger.LogException(LoggingEvents.ErrorOnGetAllMessageByUser, ex);
+
                 return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = "Something went wrong" });
             }
         }
@@ -87,7 +90,7 @@ namespace WebRestApi.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> Get([FromRoute] int id)
         {
-            _logger.LogInformation(LoggingEvents.GetMessageByUser, "Get messages by user");
+            _logger.LogInformation(LoggingEvents.GetMessageById, $"Try get Message by Id: {id}");
 
             try
             {
@@ -97,6 +100,7 @@ namespace WebRestApi.Controllers
 
                 if (!isAdmin && currentUserId != message.SenderId)
                 {
+                    _logger.LogInformation(LoggingEvents.GetMessageById, "Request forbidden for current user");
                     return Forbid();
                 }
 
@@ -120,8 +124,10 @@ namespace WebRestApi.Controllers
                     Message = message.Text
                 });
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogException(LoggingEvents.ErrorOnGetMessageById, ex);
+
                 return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = "Something went wrong" });
             }
         }
@@ -141,12 +147,15 @@ namespace WebRestApi.Controllers
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> Post([FromBody] ClientMessage message)
         {
+            _logger.LogInformation(LoggingEvents.CreateMessage, "Try send message");
+
             var currentUserId = int.Parse(this.User.FindFirst(x => x.Type == ClaimTypes.Sid).Value);
 
             if (message.From?.Id != null &&
                 this.User.FindFirst(x => x.Type == ClaimsIdentity.DefaultRoleClaimType).Value == UserRole.ADMIN.RoleName &&
                 message.From.Id.Value != currentUserId)
             {
+                _logger.LogInformation(LoggingEvents.GetMessageById, "Request forbidden for current user");
                 return Forbid();
             }
 
@@ -155,6 +164,7 @@ namespace WebRestApi.Controllers
 
             if (userFrom == null || userTo == null)
             {
+                _logger.LogError(LoggingEvents.ErrorOnCreateMessage, $"Can't send message - UserFrom is NULL: {userFrom == null}, UserTo is NULL: {userTo == null}");
                 return BadRequest(new ErrorResponse { Message = "Should specify correct id for both sender and receiver" });
             }
 
@@ -169,20 +179,22 @@ namespace WebRestApi.Controllers
 
                 if (!result)
                 {
+                    _logger.LogError(LoggingEvents.ErrorOnCreateMessage, $"Message could not be sent");
                     return BadRequest(new ErrorResponse { Message = "Message could not be sent" });
                 }
                 return Ok();
             }
             catch (Exception ex)
             {
-                _logger.LogError(LoggingEvents.ErrorOnSavingChanges, $"Error on sending new message.{Environment.NewLine}Exception message: {ex.Message}{Environment.NewLine}Exception StackTrace: {ex.StackTrace}");
+                _logger.LogException(LoggingEvents.ErrorOnCreateMessage, $"Error on sending new message", ex);
+
                 var error = new ErrorResponse { Message = "Error has accured on sending message" };
                 return StatusCode(StatusCodes.Status500InternalServerError, error);
             }
         }
 
         /// <summary>
-        /// Remove a message by Id
+        /// Update message
         /// </summary>
         /// <param name="message">Message</param>
         /// <response code="200">Message has been successfully removed</response>
@@ -192,24 +204,26 @@ namespace WebRestApi.Controllers
         [HttpPut]
         public async Task<IActionResult> Put([FromBody] ClientMessage message)
         {
-            _logger.LogInformation(LoggingEvents.DeleteUser, $"Update Message with Id {message.Id}");
+            _logger.LogInformation(LoggingEvents.UpdateMessage, $"Update Message with Id {message.Id}");
 
             var msg = await _dataService.GetMessageById(message.Id);
-            
+
             var currentUserId = int.Parse(this.User.FindFirst(x => x.Type == ClaimTypes.Sid).Value);
 
             if (this.User.FindFirst(x => x.Type == ClaimsIdentity.DefaultRoleClaimType).Value == UserRole.USER.RoleName &&
                 msg.SenderId != currentUserId)
             {
+                _logger.LogInformation(LoggingEvents.UpdateMessage, "Request forbidden for current user");
                 return Forbid();
             }
 
             try
             {
                 var msg2 = await _dataService.UpdateMessageAsync(message);
-                
+
                 if (msg2 == null)
                 {
+                    _logger.LogInformation(LoggingEvents.ErrorOnUpdateMessage, $"Could not found Message with Id {message.Id}");
                     return BadRequest(new ErrorResponse { Message = $"Message with with the Id = {message.Id} could not be found" });
                 }
 
@@ -217,7 +231,8 @@ namespace WebRestApi.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(LoggingEvents.ErrorOnDeletingUser, $"Error on deleting Message with Id {message.Id}.{Environment.NewLine}Exception message: {ex.Message}{Environment.NewLine}Exception StackTrace: {ex.StackTrace}");
+                _logger.LogException(LoggingEvents.ErrorOnUpdateMessage, $"Error on updating Message with Id {message.Id}", ex);
+
                 var error = new ErrorResponse { Message = "Error has accured on removing message" };
                 return StatusCode(StatusCodes.Status500InternalServerError, error);
             }
@@ -234,15 +249,16 @@ namespace WebRestApi.Controllers
         [HttpDelete]
         public async Task<IActionResult> Delete([FromBody] int id)
         {
-            _logger.LogInformation(LoggingEvents.DeleteUser, $"Delete Message with Id {id}");
+            _logger.LogInformation(LoggingEvents.DeleteMessageById, $"Delete Message with Id {id}");
 
             var msg = await _dataService.GetMessageById(id);
-            
+
             var currentUserId = int.Parse(this.User.FindFirst(x => x.Type == ClaimTypes.Sid).Value);
 
             if (this.User.FindFirst(x => x.Type == ClaimsIdentity.DefaultRoleClaimType).Value == UserRole.USER.RoleName &&
                 msg.SenderId != currentUserId)
             {
+                _logger.LogInformation(LoggingEvents.DeleteMessageById, "Request forbidden for current user");
                 return Forbid();
             }
 
@@ -251,6 +267,7 @@ namespace WebRestApi.Controllers
                 var message = await _dataService.DeleteMessageAsync(id);
                 if (message == null)
                 {
+                    _logger.LogInformation(LoggingEvents.ErrorOnDeleteMessageById, $"Could not found Message with Id {message.Id}");
                     return BadRequest(new ErrorResponse { Message = $"Message with with the Id = {id} could not be found" });
                 }
 
@@ -258,41 +275,44 @@ namespace WebRestApi.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(LoggingEvents.ErrorOnDeletingUser, $"Error on deleting Message with Id {id}.{Environment.NewLine}Exception message: {ex.Message}{Environment.NewLine}Exception StackTrace: {ex.StackTrace}");
+                _logger.LogException(LoggingEvents.ErrorOnDeleteMessageById, $"Error on deleting Message with Id {id}", ex);
+
                 var error = new ErrorResponse { Message = "Error has accured on removing message" };
                 return StatusCode(StatusCodes.Status500InternalServerError, error);
             }
         }
 
-        /// <summary>
-        /// Remove a message by Id
-        /// </summary>
-        /// <param name="id">Message Id</param>
-        /// <response code="200">Message has been successfully removed</response>
-        /// <response code="400">Message with the specified Id could not be found</response>
-        /// <response code="500">Something went wrong</response>
-        [Authorize(Roles = "user")]
-        [HttpDelete("user", Name = "DeleteByUserId")]
-        public async Task<IActionResult> DeleteByUser([FromBody] int id)
-        {
-            _logger.LogInformation(LoggingEvents.DeleteUser, $"Delete Message with Id {id}");
+        // /// <summary>
+        // /// Remove a message by Id
+        // /// </summary>
+        // /// <param name="id">Message Id</param>
+        // /// <response code="200">Message has been successfully removed</response>
+        // /// <response code="400">Message with the specified Id could not be found</response>
+        // /// <response code="500">Something went wrong</response>
+        // [Authorize(Roles = "user")]
+        // [HttpDelete("user", Name = "DeleteByUserId")]
+        // public async Task<IActionResult> DeleteByUser([FromBody] int id)
+        // {
+        //     _logger.LogInformation(LoggingEvents.DeleteMessageByUser, $"Delete Message for User with Id {id}");
 
-            try
-            {
-                var message = await _dataService.DeleteMessageAsync(id);
-                if (message == null)
-                {
-                    return BadRequest(new ErrorResponse { Message = $"Message with with the Id = {id} could not be found" });
-                }
+        //     try
+        //     {
+        //         var message = await _dataService.DeleteMessageAsync(id);
+        //         if (message == null)
+        //         {
+        //             _logger.LogInformation(LoggingEvents.ErrorOnDeleteMessageByUser, $"Could not found Message with Id {message.Id}");
+        //             return BadRequest(new ErrorResponse { Message = $"Message with with the Id = {id} could not be found" });
+        //         }
 
-                return Ok();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(LoggingEvents.ErrorOnDeletingUser, $"Error on deleting Message with Id {id}.{Environment.NewLine}Exception message: {ex.Message}{Environment.NewLine}Exception StackTrace: {ex.StackTrace}");
-                var error = new ErrorResponse { Message = "Error has accured on removing message" };
-                return StatusCode(StatusCodes.Status500InternalServerError, error);
-            }
-        }
+        //         return Ok();
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         _logger.LogException(LoggingEvents.ErrorOnDeleteUser, $"Error on deleting Message with Id {id}", ex);
+
+        //         var error = new ErrorResponse { Message = "Error has accured on removing message" };
+        //         return StatusCode(StatusCodes.Status500InternalServerError, error);
+        //     }
+        // }
     }
 }

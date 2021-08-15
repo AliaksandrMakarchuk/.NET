@@ -28,13 +28,11 @@ namespace WebRestApi.Controllers
         /// <summary>
         /// 
         /// </summary>
-        /// <param name="loggerFactory"></param>
+        /// <param name="logger"></param>
         /// <param name="dataService"></param>
-        public TokenController(
-            ILoggerFactory loggerFactory,
-            IDataService dataService)
+        public TokenController(ILogger<TokenController> logger, IDataService dataService)
         {
-            _logger = loggerFactory.CreateLogger<TokenController>();
+            _logger = logger;
             _dataService = dataService;
         }
 
@@ -96,8 +94,10 @@ namespace WebRestApi.Controllers
 
                 result = new JsonResult(response);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogException(LoggingEvents.ErrorOnGetToken, ex);
+                
                 return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse { Message = "Something wen wrong" });
             }
 
